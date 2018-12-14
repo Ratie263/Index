@@ -1,0 +1,241 @@
+---
+title: "My Final Project"
+author: "Melanie N, Ratie, Joan K"
+date: "Last updated on `r Sys.Date()`"
+output:
+  html_document:
+    toc: true
+    toc_depth: 2
+    toc_float: true
+    df_print: kable
+---
+
+<!--
+Comments in HTML are like this! 
+-->
+
+# SECTION NAME
+
+Write your blog post here.
+
+```{r, error = FALSE, message = FALSE}
+# load the required libraries
+library(readr)
+library(tidyverse)
+library(ggplot2)
+library(dplyr)
+library(leaflet)
+library(maps)
+library(sf)
+# import datasets
+headline_responses <- read_csv("headline-responses.csv")
+#View(headline_responses)
+
+raw_data <- read_csv("raw-data.csv")
+#View(raw_data)
+
+coords <- read_csv("coords.csv")
+#View(coords)
+```
+
+```{r}
+coords0 <- na.omit(coords) %>%
+  
+  #seperate the colum into latitude and longitude
+
+  separate(col = "ZIP,LAT,LNG", into = c("FIPS","latitude", "longitude"), 
+           sep = ",")%>%
+ 
+  mutate(
+    FIPS=as.numeric(FIPS),
+    latitude = as.numeric(latitude),
+    longitude = as.numeric(longitude))
+#View(coords0)
+```
+
+
+```{r, error = FALSE}
+# select the needed columns
+
+raw_data0 <- raw_data %>%
+  select(ID, HCAL_REGION1_Label_US, HADD_ZipCode_US, HCAL_AGGLO_CODE_US, HCAL_AGGLO_CODE_Label_US,  HCAL_STDREGION_4CODES_Label_US, DP_ETHNICITY_BAN, resp_gender,resp_age,US09KID,CurrentYear, DWD4, DWD5, GRID_DWD9_1_DWD9, GRID_DWD9_5_DWD9, DWD10,DWD1,DWD5)%>%
+  mutate(FIPS=as.numeric(HADD_ZipCode_US))
+
+#View(raw_data0)
+# join the 2 datasets
+joined_data <- headline_responses %>%
+  inner_join(raw_data0, by = "ID")
+#View(raw_data)
+```
+
+```{r}
+
+combined<-coords0%>%
+  inner_join(joined_data,by="FIPS")
+#View(combined)
+```
+
+```{r}
+combined1<-combined%>%
+  #group_by(DWD1)%>%
+  filter(recalled == "yes") %>%
+  mutate(political_party=as.factor(DWD1))%>%
+  select(ID, headline, accuracy_bool, is_fake, HCAL_REGION1_Label_US, resp_age,political_party,DWD5,GRID_DWD9_1_DWD9) %>%
+ mutate(wrong_or_not = ifelse(accuracy_bool == is_fake, 1, 0)) %>%
+  group_by(ID) %>%
+  mutate(wrong_count = sum(wrong_or_not),
+         total = n(),
+         percentage_wrong = wrong_count/total)%>%
+    mutate(age_group= ifelse(resp_age> 92, "GREATEST GENERATION",
+         ifelse(resp_age>73, "SILENT GENERATION",
+         ifelse(resp_age>54,"BABY BOOMERS", ifelse(resp_age>38,"GEN X","MILLENNIALS"
+                                        
+         )))))%>%
+  mutate(political_party= ifelse(political_party=="1", "Democrat",
+         ifelse(political_party=="2","Republican",
+         ifelse(political_party=="3","	Independent", "Other"))))
+             
+#View(combined1)
+
+
+```
+
+
+```{r}
+combined2<-combined1%>%
+  filter(age_group=="GREATEST GENERATION")%>%
+group_by(political_party)%>%
+  mutate(mean_wrong=mean(percentage_wrong))
+#View(combined2)
+combined3<-combined1%>%
+   filter(age_group== "SILENT GENERATION")%>%
+group_by(political_party)%>%
+  mutate(mean_wrong=mean(percentage_wrong))
+combined4<-combined1%>%
+   filter(age_group== "BABY BOOMERS")%>%
+group_by(political_party)%>%
+  mutate(mean_wrong=mean(percentage_wrong))
+combined5<-combined1%>%
+   filter(age_group== "GEN X")%>%
+group_by(political_party)%>%
+  mutate(mean_wrong=mean(percentage_wrong))
+combined6<-combined1%>%
+   filter(age_group== "MILLENNIALS")%>%
+group_by(political_party)%>%
+  mutate(mean_wrong=mean(percentage_wrong))
+#View(combined6)
+```
+```{r}
+ combined01<-full_join(combined2, combined3, by=NULL) 
+combined02<-full_join(combined01, combined4, by=NULL)
+combined03<-full_join(combined02, combined5, by=NULL)
+combined04<-full_join(combined03, combined6, by=NULL)
+
+#View(combined04)
+
+```
+
+```{r}
+combined04$age_group <- as.character(combined04$age_group)
+#Then turn it back into a factor with the levels in the correct order
+combined04$age_group <- factor(combined04$age_group, levels=unique(combined04$age_group))
+```
+```{r}
+ggplot((combined04), aes(x= (age_group), y=(mean_wrong), fill=as.factor(political_party))) +
+  geom_col( position="dodge") +
+  
+  labs(x = "Age group", y="Percentage wrong", 
+       title = "Bias by Political party affiliatiton across age groups",fill="Political Party")+
+  theme_bw()
+```
+```{r}
+ggplot((combined04), aes(x= (age_group), y=(mean_wrong), fill=as.factor(DWD5))) +
+  geom_col( position="dodge") +
+  labs(x = "Age group", y="Percentage wrong", 
+       title = "Bias by Political party affiliatiton",fill="Political Party")
+```
+
+```{r}
+#pal <- colorFactor(c("blue", "red", "green","yellow", "black"), Abuse.Type )
+
+lopt = labelOptions(noHide = TRUE,
+                    direction = 'top',
+                    textOnly = TRUE)
+                    
+leaflet(data = combined) %>%
+  addTiles() %>%
+  addCircleMarkers(
+    ~longitude, ~latitude, clusterOptions = NULL
+   
+  )
+  
+
+```
+
+
+
+
+
+```{r}
+joined1<-na.omit(joined_data)%>%
+  filter(recalled=="yes")%>%
+   mutate(num_correct= ifelse((accuracy_bool==is_fake), 1,
+         0))%>%
+    mutate(total_influence=(GRID_DWD9_1_DWD9+GRID_DWD9_5_DWD9))
+
+View(joined1)
+```
+```{r}
+joined2<-joined1%>%
+ filter(recalled == "yes") %>%
+  select(ID, headline, accuracy_bool, is_fake, HCAL_REGION1_Label_US) %>%
+ mutate(wrong_or_not = ifelse(accuracy_bool == is_fake, 1, 0)) %>%
+  group_by(ID) %>%
+  mutate(wrong_count = sum(wrong_or_not),
+         total = n(),
+         percentage_wrong = wrong_count/total)
+View(joined2)
+```
+
+```{r}
+joined3<-joined2%>%
+  inner_join(joined1, by="ID")%>%
+ mutate(classes= ifelse(total_influence>12, 4,
+         ifelse(total_influence>8, 3,
+         ifelse(total_influence>4, 2,
+         1
+         ))))%>%
+   mutate(age_group= ifelse(resp_age> 92, "THE GREATEST GENERATION",
+         ifelse(resp_age>73, "THE SILENT GENERATION",
+         ifelse(resp_age>54,"THE BABY BOOMERS", ifelse(resp_age>38,"GEN X","MILLENNIALS"
+                                        
+         )))))%>%
+  group_by(total_influence)%>%
+  mutate(mean_wrong=mean(percentage_wrong))
+View(joined3)
+```
+```{r}
+ggplot(na.omit(joined3), aes(x= total_influence, y=mean(percentage_wrong))) +
+  geom_point( aes()) +
+  scale_fill_brewer(direction = -1)+
+ geom_smooth(method='lm',se = FALSE)+
+  facet_wrap(~age_group)
+```
+```{r}
+ggplot(na.omit(joined3), aes(x= (total_influence), y=(mean_wrong) )) +
+  geom_col( aes()) 
+```
+```
+
+
+```{r, error = FALSE}
+# Visualizations
+
+```
+
+
+```{r, error = FALSE}
+
+```
+
+
